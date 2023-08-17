@@ -4,6 +4,29 @@
   
   
   <entry>
+    <title>为开源项目持续贡献的最佳实践</title>
+    <link href="/2023/08/09/%E4%B8%BA%E5%BC%80%E6%BA%90%E9%A1%B9%E7%9B%AE%E6%8C%81%E7%BB%AD%E8%B4%A1%E7%8C%AE%E7%9A%84%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/"/>
+    <url>/2023/08/09/%E4%B8%BA%E5%BC%80%E6%BA%90%E9%A1%B9%E7%9B%AE%E6%8C%81%E7%BB%AD%E8%B4%A1%E7%8C%AE%E7%9A%84%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/</url>
+    
+    <content type="html"><![CDATA[<p>本篇文章主要讲述为开源项目做贡献的流程与仓库管理方法，希望能够为刚刚接触开源的同学节省时间与经历。同时，本流程也适用于团队之间的协作。</p><span id="more"></span><p>这个暑假我通过OSPP接触到了Pycasbin社区，也成为了Pycasbin的maintainer，在刚开始提交pr的时候走了不少弯路，由此写下这篇文章希望能够帮到阅读到本篇文章的你。</p><h2 id="开始之前"><a href="#开始之前" class="headerlink" title="开始之前"></a>开始之前</h2><p>在开始之前，你应该对git与github有初步的了解，同时，你也可以安装<a href="https://git-fork.com/">Fork</a>，它是一个可视化操作git的软件，对于处理一些复杂的情况十分有用。</p><h2 id="贡献流程"><a href="#贡献流程" class="headerlink" title="贡献流程"></a>贡献流程</h2><h3 id="fork与新建branch"><a href="#fork与新建branch" class="headerlink" title="fork与新建branch"></a>fork与新建branch</h3><p>当你决定好要为项目做出贡献时，首先你应该fork一个自己的仓库，方便对其进行修改，fork在github项目页面的右上角。</p><p><img src="/img/assets/image-20230809112326623.png" alt="fork项目"></p><p>完成之后，页面会自动跳转到你属于你自己的fork仓库，这时将代码clone到本地。同时为其新建一个branch。如果你想要为项目贡献的是一个新的feature的话，建议将branch命名为<code>feat/your-feature</code>，如果是修复bug，可以命名为<code>fix/bug-to-be-fixed</code>。</p><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><code class="hljs shell">git clone git@github.com:BustDot/django-authorization.git<br>git checkout -b &quot;feat/django-auth&quot;<br></code></pre></td></tr></table></figure><p class="note note-info">如果你只是打算做一次性贡献，可以直接在fork仓库的master分支下进行修改。若打算进行持续贡献，良好的分支管理可以为之后的工作省去很多麻烦。</p><p class="note note-info">fork的项目默认不会开启github action，如果项目有配置github workflow，需要你在fork仓库的action tab下手动打开。我会建议你开启action，这样可以保证在提交pr前可以通过大部分check，减少后续沟通成本。</p><h3 id="发起pull-request"><a href="#发起pull-request" class="headerlink" title="发起pull request"></a>发起pull request</h3><p>当完成代码的修改并push到远程仓库后，下一步即发起pull request. 在发起pr前，你需要检查当前仓库是否与源仓库保持一致，如果此时源仓库有新的commit时，需要同步当前的fork仓库，点击<code>sync fork</code>并按照提示操作即可。保证与源仓库同步后，点击<code>contribute</code>即可发起pr</p><p><img src="/img/assets/image-20230816120441774.png" alt="发起pr"></p><p>填写相应的pr信息并发起pr。标题请遵循你需要贡献的仓库规范。主体内容阐述清楚进行了哪些修改。</p><p><img src="/img/assets/image-20230816120741721.png" alt="填写pr信息"></p><p>至此，在pr页面确保自己的代码通过了所有检查，等待owner review与并入主仓库即可！</p><h2 id="Some-tips"><a href="#Some-tips" class="headerlink" title="Some tips"></a>Some tips</h2><h3 id="如何修改上一次的commit？"><a href="#如何修改上一次的commit？" class="headerlink" title="如何修改上一次的commit？"></a>如何修改上一次的commit？</h3><p>我们经常会遇到需要对已经提交的代码进行一些微小的改动（尤其常见于格式规范，如为py文件的末尾添加空行等），这时多添加一条commit信息显得有些多余，git amend可以在这里派上用场。使用amend可以修改上一次commit的信息。</p><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><code class="hljs shell">git add .<br>git commit --amend -m &quot;updated commit message&quot;<br></code></pre></td></tr></table></figure><p>如果你已经把上一次commit push到远程仓库，你可以使用<code>git push --force-with-lease</code>来强制修改远程仓库。注意，如果你使用jetbrain系列IDE并勾选Amend进行commit and push时，一般会提示你权限不足。正确的操作应该是在对本地仓库amend commit并在命令行中进行强制push。</p><p class="note note-danger">你只应该对还未合并到master分支且只有自己负责的branch进行amend操作，否则这会打乱历史commit信息并给其他合作者带来困扰。</p><h3 id="我如何对已经提交pr的代码进行修改？"><a href="#我如何对已经提交pr的代码进行修改？" class="headerlink" title="我如何对已经提交pr的代码进行修改？"></a>我如何对已经提交pr的代码进行修改？</h3><p>按照正常流程push新commit即可，pr会自动更新新提交的代码。</p>]]></content>
+    
+    
+    
+    <tags>
+      
+      <tag>github</tag>
+      
+      <tag>open source</tag>
+      
+      <tag>casbin</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>MIT 6.5840(6.824) | GFS Note</title>
     <link href="/2023/08/08/MIT-6-5840-6-824-GFS-Note/"/>
     <url>/2023/08/08/MIT-6-5840-6-824-GFS-Note/</url>
