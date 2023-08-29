@@ -24,7 +24,7 @@
 <meta property="og:description" content="本篇文章主要讲解我的无显式锁MapReduce实现思路。">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2023-08-07T12:55:16.000Z">
-<meta property="article:modified_time" content="2023-08-08T08:24:33.527Z">
+<meta property="article:modified_time" content="2023-08-29T02:42:58.684Z">
 <meta property="article:author" content="BustDot">
 <meta property="article:tag" content="MIT6.5840">
 <meta property="article:tag" content="分布式系统">
@@ -298,9 +298,10 @@
 <p>Coordinator的工作流程主要如下：</p>
 <ol>
 <li>将任务打入taskChan</li>
-<li>接到worker任务请求，从workingChan取出worker发来的已完成任务并打入DoneChan</li>
+<li>接到worker任务请求，从workingChan取出worker发来的上一轮已完成任务并打入DoneChan</li>
 <li>遍历workingChan查看是否有超时任务，如果超时则取出并放回taskChan供重新分配</li>
-<li>从taskChan取出任务分配给worker后，将其打入workingChan</li>
+<li>若taskChan中还有任务，则从taskChan取出任务分配给worker后，将其打入workingChan</li>
+<li>若taskChan中无任务，则分配waitTask</li>
 </ol>
 <p>可以发现只需要维护task的状态即可，并不需要关注worker的状态，如果worker没能完成这个任务，交给其他worker完成就可以了。</p>
 <p>至于map阶段，reduce阶段与所有任务完成阶段的转换，只需要在每次call Done函数时进行判断，如果此时DoneChan中的任务数量与需要完成的数量相同，就可以判断此阶段完成，可以开启下一阶段了。</p>
