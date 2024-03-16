@@ -4,6 +4,27 @@
   
   
   <entry>
+    <title>CMU 15-445 (fall 2023) Project 1 BUFFER POOL</title>
+    <link href="/2024/03/16/CMU-15-445-645-fall-2023-Project-1-BUFFER-POOL/"/>
+    <url>/2024/03/16/CMU-15-445-645-fall-2023-Project-1-BUFFER-POOL/</url>
+    
+    <content type="html"><![CDATA[<p>本篇为15-445 project 1 buffer pool的总结。</p><span id="more"></span><h2 id="写在开始之前"><a href="#写在开始之前" class="headerlink" title="写在开始之前"></a>写在开始之前</h2><p>看15-445的网课加做lab断断续续持续了三个月，中间历经申请硕士写文书的癫狂，过年休息的惬意，15-445一直作为副线穿插在我的日常生活中，但每次写完一个15-445的project，我都有一种身心的愉悦，有一种我变秃了也变强的快乐，也在此感谢Andy和CMU DB group能够把这门神课开放给所有人，正是经过了这门课的洗礼让我从一个对数据库一无所知的小白成长为对数据库每个组件都略知一二的入门者，享受在数据库中遨游的快乐。</p><p>在此写下我对lab的一些总结，由于有不少大佬已经写了很不错的经验贴，我应该不会描述lab中过多的细节，权当对lab的复盘，想到的一些相关的问题也会做较多的发散，希望能对我找到相关的实习有所帮助（。</p><h2 id="关于debug"><a href="#关于debug" class="headerlink" title="关于debug"></a>关于debug</h2><p>写bustub时是免不了调试的，我并不会gdb这类学习成本比较高的调试工具，但是仅靠IDE提供的调试工具和在代码中print相关信息也顺利通过了P1-P4。输出信息时可以善用bustub内置的宏，eg. <code>LOG_INFO(&quot;Writing page %d to disk, data: %s&quot;, r.page_id_, r.data_);</code>这可以打印出较为详细的信息。同时大模型时代也请善用AI，学生能免费用github copilot实在太爽了。</p><h2 id="什么是buffer-pool"><a href="#什么是buffer-pool" class="headerlink" title="什么是buffer pool?"></a>什么是buffer pool?</h2><p>虽然数据库的数据最终都存储在磁盘当中，但当我们读取和修改数据时，都需要在内存中进行，而buffer pool解决的就是取什么，什么时候取，如果内存满了将哪些数据写回磁盘，怎样写回磁盘的问题。相较于让操作系统代替我们管理内存，由于我们知道每次操作的语义，自己对内存进行管理能够保证数据库以更高的效率运行。而我们的buffer pool通过将内存划分为一个个大小与page相同的frame，通过frame容纳的page的切换达成数据的读入与写出。这里可以看看小林coding上对mysql中buffer pool的<a href="https://xiaolincoding.com/mysql/buffer_pool/buffer_pool.html">描述</a>。</p><h2 id="LRU-K-replacer"><a href="#LRU-K-replacer" class="headerlink" title="LRU-K replacer"></a>LRU-K replacer</h2><p>Replacer负责的就是当内存满时驱逐哪个page将要读的page置换进来，决策的越好，就能保证数据在内存中的命中率越高，从而提升数据库的性能（这里需要了解寄存器，cpu cache, 内存, 磁盘的速度差异）。<img src="/../img/assets/image-20240316234337766.png" alt="不同存储器速度差异"></p><p>这里唯一需要注意的是Evict时驱逐 evictable 且具有最大 k-distance 的 frame，而对于未满 k 次访问的 frame， 需要比较第一次访问的时间戳，而<strong>不是最近一次的</strong>。我在驱逐时偷懒直接用优先队列把所有Node都存了一遍，然后把满足条件的第一个Node踢掉。之前看到过<a href="https://www.bilibili.com/video/BV16u4m1c7cU/">一个视频</a>说过对于较小的数据量，复杂度较高的算法并不是不可接受的，对于理论上复杂度更优的算法，即使看上去优化了一个数量级，但常数项对于较小的数据量并不可忽略，而当我们调用封装好并且优化过的算法时反而能以更快的速度和更简单的代码完成任务（给自己偷懒找理由来了）。</p><p>这里能想到的可能在面试里会遇到的问题应该就是<a href="https://leetcode.cn/problems/lru-cache/description/">手撕LRU算法</a>，熟悉一下双向链表即可。</p><h2 id="Disk-scheduler"><a href="#Disk-scheduler" class="headerlink" title="Disk scheduler"></a>Disk scheduler</h2><p>这里是23fall唯一需要我们亲自写多线程的代码，但并不需要特别了解多线程，而channel和promise对于写过golang和前端的同学来说应该也比较熟悉，语法看一看cppreference也就懂了。写到这里也可以去看看Disk Manager是怎么实现的，由于page的大小固定，所以我们只要通过page_id * PAGE_SIZE就可以获得page的offset，也就能找到相应的文件了。</p><h2 id="Buffer-pool-manager"><a href="#Buffer-pool-manager" class="headerlink" title="Buffer pool manager"></a>Buffer pool manager</h2><p>P1的重点是理解<code>pin_count</code>，类似于引用计数的概念，只有当<code>pin_count</code>为0时才能保证该page当前没有被访问，才能安全地对它进行刷回磁盘等操作，而迟先生为我们引入的PageGuard也给之后page信息的维护省了不少精力。关于并发控制，我也是全程拿了一把大锁先保证能成功实现项目，之后有空的话再做优化和leaderboard task了。</p><h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>P1 buffer pool应该是四个项目中最简单的project了，但是对于刚开始不熟悉C++的我来说也着实废了一番力气。虽然简单，但后面的索引，查询执行都依赖于buffer pool的实现，buffer pool实现的正确性关切到之后project能不能正常的运行，还是需要认真检查有没有出纰漏的。</p><p>P2 Hash Index的总结应该会在下周写完，希望能做到周更（。</p>]]></content>
+    
+    
+    
+    <tags>
+      
+      <tag>15-445</tag>
+      
+      <tag>database</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>MIT 6.5840(6.824) | ZooKeeper Note</title>
     <link href="/2023/08/31/MIT-6-5840-6-824-ZooKeeper-Note/"/>
     <url>/2023/08/31/MIT-6-5840-6-824-ZooKeeper-Note/</url>
