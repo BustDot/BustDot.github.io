@@ -16,23 +16,28 @@
   <meta name="author" content="BustDot">
   <meta name="keywords" content="">
   
-    <meta name="description" content="本篇为15-445 project 2 extendible hash index的总结。">
+    <meta name="description" content="本篇为15-445 project 3 query execution的总结。">
 <meta property="og:type" content="article">
-<meta property="og:title" content="CMU 15-445&#x2F;645 (fall 2023) Project 2 Extendible Hash Index">
-<meta property="og:url" content="http://bustdot.github.io/2024/03/23/CMU-15-445-645-fall-2023-Project-2-Hash-Index/index.html">
+<meta property="og:title" content="CMU 15-445&#x2F;645 (fall 2023) Project 3 QUERY EXECUTION">
+<meta property="og:url" content="http://bustdot.github.io/2024/03/30/CMU-15-445-645-fall-2023-Project-3-Query-%20Execution/index.html">
 <meta property="og:site_name" content="BustDot blog">
-<meta property="og:description" content="本篇为15-445 project 2 extendible hash index的总结。">
+<meta property="og:description" content="本篇为15-445 project 3 query execution的总结。">
 <meta property="og:locale" content="zh_CN">
-<meta property="article:published_time" content="2024-03-22T16:04:51.000Z">
-<meta property="article:modified_time" content="2024-03-24T07:33:36.591Z">
+<meta property="og:image" content="https://images.mingming.dev/file/0b92ba42f1c714945956c.png">
+<meta property="og:image" content="https://images.mingming.dev/file/55a2d6c38ba464c4feca2.png">
+<meta property="og:image" content="https://images.mingming.dev/file/4886b1172ec737d6333e6.png">
+<meta property="og:image" content="https://images.mingming.dev/file/b00901e29e5a89f9f4e06.png">
+<meta property="article:published_time" content="2024-03-29T16:04:51.000Z">
+<meta property="article:modified_time" content="2024-03-31T15:43:18.678Z">
 <meta property="article:author" content="BustDot">
 <meta property="article:tag" content="15-445">
 <meta property="article:tag" content="database">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://images.mingming.dev/file/0b92ba42f1c714945956c.png">
   
   
   
-  <title>CMU 15-445/645 (fall 2023) Project 2 Extendible Hash Index - BustDot blog</title>
+  <title>CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION - BustDot blog</title>
 
   <link  rel="stylesheet" href="https://lib.baomitu.com/twitter-bootstrap/4.6.1/css/bootstrap.min.css" />
 
@@ -198,7 +203,7 @@
       <div class="banner-text text-center fade-in-up">
         <div class="h2">
           
-            <span id="subtitle" data-typed-text="CMU 15-445/645 (fall 2023) Project 2 Extendible Hash Index"></span>
+            <span id="subtitle" data-typed-text="CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION"></span>
           
         </div>
 
@@ -209,8 +214,8 @@
     
       <span class="post-meta">
         <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-        <time datetime="2024-03-23 00:04" pubdate>
-          2024年3月23日 凌晨
+        <time datetime="2024-03-30 00:04" pubdate>
+          2024年3月30日 凌晨
         </time>
       </span>
     
@@ -221,7 +226,7 @@
       <span class="post-meta mr-2">
         <i class="iconfont icon-chart"></i>
         
-          2.6k 字
+          4.1k 字
         
       </span>
     
@@ -232,7 +237,7 @@
         
         
         
-          22 分钟
+          34 分钟
         
       </span>
     
@@ -269,30 +274,52 @@
       <div class="container nopadding-x-md" id="board-ctn">
         <div id="board">
           <article class="post-content mx-auto">
-            <h1 id="seo-header">CMU 15-445/645 (fall 2023) Project 2 Extendible Hash Index</h1>
+            <h1 id="seo-header">CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION</h1>
             
             
               <div class="markdown-body">
                 
-                <p>本篇为15-445 project 2 extendible hash index的总结。</p>
+                <p>本篇为15-445 project 3 query execution的总结。</p>
 <span id="more"></span>
 
-<h2 id="什么是Hash-Index？"><a href="#什么是Hash-Index？" class="headerlink" title="什么是Hash Index？"></a>什么是Hash Index？</h2><p>索引就是帮助存储引擎快速获取数据的一种数据结构，形象的说就是索引是数据的目录。23 Fall前都是B+ tree索引，这是BusTub第一次引入hash索引。hash索引相较于B+ tree索引，只适合于等值查询，查找时间复杂度为O(1)，B+ tree索引叶节点是相互连接的，十分适用于范围查询和顺序访问，查找效率通常是O(log n)。</p>
-<h2 id="Page-Guard"><a href="#Page-Guard" class="headerlink" title="Page Guard"></a>Page Guard</h2><p>在写page guard之前应该先了解C++中<a target="_blank" rel="noopener" href="https://en.cppreference.com/w/cpp/language/raii">RAII</a>的概念，有了RAII我们可以少很多管理资源获取与释放的心智负担。实验室师兄在面阿里云时面试官说现代C++就尽量不要用裸指针和锁了，尽量采用智能指针和lock_guard等，所以这里RAII的概念还是挺重要的。</p>
-<p>Page guard需要注意的点不多，page guard创建时不需要获取latch，而应该由BufferPoolManager在FetchPageRead和FetchPageWrite时先获取对应的latch再创建ReadPageGuard或者WritePageGuard，在析构或者Drop时对latch进行相应的释放。在对BasicPage进行upgrade时drop之前，先将Page对象指针置空，这样就会告诉Drop时不要调用Unpin，Page也就不会被设为evictable。</p>
-<h2 id="Extendible-Hash-Table-Pages"><a href="#Extendible-Hash-Table-Pages" class="headerlink" title="Extendible Hash Table Pages"></a>Extendible Hash Table Pages</h2><p>索引是需要持久化到磁盘中的，这一部分实现的三个Page就是未来我们存储索引的地方。BusTub中page为固定的4096 Bytes，Header中存的是每个directory的page_id，最大可以存512个page_id，占2048 Bytes，MaxDepth占4 Bytes，空余2044 Bytes；directory中存的是每个bucket的page_id，至多可存512个page_id，占2048 Bytes，其余的占空间大小看每个头文件开头和实验手册的注释即可；Bucket才是真正存数据对应索引的地方，key是索引的值，value则是该元组的RID（即page_id + slot_num）。这些标明的量都是需要持久化到磁盘中的：</p>
-<figure class="highlight asciidoc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><code class="hljs asciidoc"><span class="hljs-bullet">* </span>Header page format:<br><span class="hljs-bullet">*  </span>---------------------------------------------------<br><span class="hljs-bullet">* </span>| DirectoryPageIds(2048) | MaxDepth (4) | Free(2044)<br><span class="hljs-bullet">*  </span>---------------------------------------------------<br><br><br><span class="hljs-bullet">* </span>Directory page format:<br><span class="hljs-bullet">*  </span>--------------------------------------------------------------------------------------<br><span class="hljs-bullet">* </span>| MaxDepth (4) | GlobalDepth (4) | LocalDepths (512) | BucketPageIds(2048) | Free(1528)<br><span class="hljs-bullet">*  </span>--------------------------------------------------------------------------------------<br><br><br><span class="hljs-bullet">* </span>Bucket page format:<br><span class="hljs-bullet">*  </span>----------------------------------------------------------------------------<br><span class="hljs-bullet">* </span>| METADATA | KEY(1) <span class="hljs-code">+ VALUE(1) | KEY(2) +</span> VALUE(2) | ... | KEY(n) + VALUE(n)<br><span class="hljs-bullet">*  </span>----------------------------------------------------------------------------<br><span class="hljs-bullet">*</span><br><span class="hljs-bullet"></span><span class="hljs-bullet">* </span>Metadata format (size in byte, 8 bytes in total):<br><span class="hljs-bullet">*  </span>--------------------------------<br><span class="hljs-bullet">* </span>| CurrentSize (4) | MaxSize (4)<br><span class="hljs-bullet">*  </span>--------------------------------<br></code></pre></td></tr></table></figure>
+<p>相较于Project 1和2 Buffer Pool和Index较为底层的组件，Project 3主要关注的是图中红框的部分，从这里开始我们能够从一个比较高的角度来理解BusTub是如何运行的，也感谢迟先生在23Spring为BusTub引入了一整套Query Processing层，让我们可以在本地实际运行SQL，帮助我们更直观的理解一条SQL在数据库里的执行流程。红框中各组件负责的功能如下：</p>
+<ul>
+<li>Parser：根据sql语句生成一颗抽象语法树（学过编译原理的同学应该熟悉，这就是编译器的前端，BusTub直接采用了<code>pg_query</code>库将SQL语句parse成抽象语法树）。</li>
+<li>Binder：结合数据库的元信息，将抽象语法树中的标识符绑定到BusTub能理解的实体（C++类）上，转成一个具有库表信息的语义语法树。</li>
+<li>Planner：根据语义语法树生成逻辑执行计划树，也叫查询计划。</li>
+<li>Optimizer：根据某些优化规则，重写优化后的查询计划（BusTub是rule-based优化器，意味着优化都要根据我们自己写的规则来，目前业界采用的优化器也有cost-based, data-dependent-based等等）。</li>
+<li>Executors：根据查询计划，生成具体的算子执行树。</li>
+</ul>
+<p><img src="https://images.mingming.dev/file/0b92ba42f1c714945956c.png" srcset="/img/loading.gif" lazyload alt="BusTub架构"></p>
+<p><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/602413477">这篇文章</a>给BusTub的查询流程和结构画了比较详细的图，可以参考一下。</p>
+<h2 id="在Clion中Debug（观察）BusTub"><a href="#在Clion中Debug（观察）BusTub" class="headerlink" title="在Clion中Debug（观察）BusTub"></a>在Clion中Debug（观察）BusTub</h2><p>通过编译运行<code>tools/shell.cpp</code>，我们可以直接在Clion里通过命令行输入SQL进行调试，记得在Debug configurations里加上参数<code>--disable-tty</code>。</p>
+<p><img src="https://images.mingming.dev/file/55a2d6c38ba464c4feca2.png" srcset="/img/loading.gif" lazyload alt="加上参数--disable-tty"></p>
+<p>这样我们就能通过打断点观察SQL的运行流程了，这里以一条seqscan语句为例，我先在<code>seq_scan_executor</code>里打了断点，然后以Debug模式运行shell，并在命令行里输入<code>select col2 + col1 from test_simple_seq_2;</code>这条会触发seqscan的SQL语句，执行后我们可以在下方很清晰的看到函数的调用栈，各个变量的值，对于调试来说十分的直观。</p>
+<p><img src="https://images.mingming.dev/file/4886b1172ec737d6333e6.png" srcset="/img/loading.gif" lazyload alt="SQL调试流程"></p>
+<p>同时在输入的SQL语句前加上<code>EXPLAIN</code>命令，BusTub会将生成执行计划的过程全部打印出来，这对我们调试优化器会很有帮助：</p>
+<figure class="highlight routeros"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><code class="hljs routeros">bustub&gt; EXPLAIN SELECT * <span class="hljs-keyword">FROM</span> __mock_table_1;<br>=== BINDER ===<br>BoundSelect &#123;<br>  <span class="hljs-attribute">table</span>=BoundBaseTableRef &#123; <span class="hljs-attribute">table</span>=__mock_table_1, <span class="hljs-attribute">oid</span>=0 &#125;,<br>  columns=[__mock_table_1.colA, __mock_table_1.colB],<br>  groupBy=[],<br>  <span class="hljs-attribute">having</span>=,<br>  <span class="hljs-attribute">where</span>=,<br>  <span class="hljs-attribute">limit</span>=,<br>  <span class="hljs-attribute">offset</span>=,<br>  order_by=[],<br>  <span class="hljs-attribute">is_distinct</span>=<span class="hljs-literal">false</span>,<br>&#125;<br>=== PLANNER ===<br>Projection &#123; exprs=[#0.0, #0.1] &#125; | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)<br>MockScan &#123; <span class="hljs-attribute">table</span>=__mock_table_1 &#125; | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)<br>=== OPTIMIZER ===<br>MockScan &#123; <span class="hljs-attribute">table</span>=__mock_table_1 &#125; | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)<br></code></pre></td></tr></table></figure>
 
-<p>完成这个task的时候可以不求甚解，面向测试用例编程，到task3写的不对的再改就好，但是心里要清楚每个page各自起到什么作用。写的时候不清楚local_depth和global_depth究竟怎么一回事可以去看看<code>VerifyIntegrity()</code>这个方法究竟是怎么判定的。</p>
-<blockquote>
-<p>小tips:</p>
-<p>在计算HashToBucketIndex()时直接return hash &amp; ((1 &lt;&lt; global_depth_) - 1); 不要写复杂了hh</p>
-</blockquote>
-<h2 id="Extendible-Hashing-Implementation"><a href="#Extendible-Hashing-Implementation" class="headerlink" title="Extendible Hashing Implementation"></a>Extendible Hashing Implementation</h2><p>Task 3是project 2里最复杂的一部分，开始之前一定要弄明白实验手册里给的hint，不清楚一定要自己动手画画图，多打印日志，不要偷懒。可以参考这篇<a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/664444839">博文</a>过程写的很详细，<a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/679864158">这一篇</a>流程图画的比较清晰。</p>
-<h2 id="Concurrency-Control"><a href="#Concurrency-Control" class="headerlink" title="Concurrency Control"></a>Concurrency Control</h2><p>只要保证task 3在管理读写锁时遵守课上讲的crabbing法则应该不会有什么问题。只有一个测试用例会卡锁住的page数量，记得拿到directory page后drop header page就ok了。</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>Project 2对比1来说要复杂不少，尤其是task 3 remove方法bucket merging和directory shrinking细节比较多，调试会花费大量的时间。但是就面试而言还是B+ tree索引问的多一些，有空的话我也会回头看看同学写的23 spring 的代码学习一下。</p>
-<h3 id="一些牢骚"><a href="#一些牢骚" class="headerlink" title="一些牢骚"></a>一些牢骚</h3><p>去年的时候找到一个数据库相关和企业合作的毕设还挺开心的，结果这一个月都是在分析trace做些表面功夫，一行系统的代码都没写过很是心累，而这样一个大企业的核心业务架构也十分的丑陋，虽然我知道这肯定是多方妥协的结果，但还是挺可笑的。最近刷知乎看到不少劝退数据库岗位的文章，主要的论调是虽然写system的代码很爽，但是业界根本没有那么多需求，数据库公司挣不到钱。</p>
-<p>牢骚归牢骚，希望自己能赶快把手头的毕设搞完，在读研前找到个有意思的实习。😇</p>
+<h2 id="火山模型"><a href="#火山模型" class="headerlink" title="火山模型"></a>火山模型</h2><p>BusTub采用了解释计算模型，将关系代数中每一种操作抽象为一个 Operator，将整个 SQL 构建成一个 Operator 树，从根节点到叶子结点自上而下地递归调用 <code>next()</code> 函数。优点就是每个算子我们都可以独立实现，不必过多考虑其他算子的特性，缺点就是每次算子计算只会返回一个tuple，这会造成大量的函数调用开销。对于火山模型的优化方向有编译执行和向量化，具体可以参考<a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/219516250">这篇文章</a>。</p>
+<h2 id="算子实现"><a href="#算子实现" class="headerlink" title="算子实现"></a>算子实现</h2><p>算子中增删改查都比较简单，实现一个其他稍微改一改就可以，需要注意的是executor 本身并不保存查询计划的信息，应该通过 executor 的成员 plan 来得知该如何进行本次计算，例如 SeqScanExecutor 需要向 SeqScanPlanNode 询问自己该扫描哪张表。所有要用到的系统资源，例如 Catalog，Buffer Pool 等，都由 <code>ExecutorContext</code> 提供。这里比较麻烦的一点是我不知道输出的tuple schema长啥样，经过调试发现输出结果的schema是在<code>src/execution/plan_node.cpp</code>定义的，参考这里对结果进行拼装就可以了。</p>
+<h3 id="Aggregation-Executor"><a href="#Aggregation-Executor" class="headerlink" title="Aggregation Executor"></a>Aggregation Executor</h3><p>BusTub简化了aggregation算子，我们可以认为所有结果都可以放进内存，意味着不需要实现一个可持久化的hash table，使用<code>std::unordered_map</code>就可以满足需求。</p>
+<p>Aggregation算子是pipeline breaker，意味着 Aggregation 的 <code>Init()</code> 函数中，我们就要将所有结果全部计算出来而不是调用一次next去计算一次聚合结果。举个例子，比如下面这条 sql：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs sql"><span class="hljs-keyword">SELECT</span> t.x, <span class="hljs-built_in">max</span>(t.y) <span class="hljs-keyword">FROM</span> t <span class="hljs-keyword">GROUP</span> <span class="hljs-keyword">BY</span> t.x;<br></code></pre></td></tr></table></figure>
+
+<p>结果的每条 tuple 都是一个 <code>t.x</code> 的聚合，而要得到同一个 <code>t.x</code> 对应的 <code>max(t.y)</code>，必须要遍历整张表。因此，Aggregation 需要在 <code>Init()</code> 中直接计算出全部结果，将结果暂存，再在 <code>Next()</code> 中一条一条地 emit。中间结果则保存在SimpleAggregationHashTable中。</p>
+<p>Aggregation中间结果计算流程如下：</p>
+<ol>
+<li>在<code>Init()</code>中调用子算子，并将子算子输出的tuple生成对应的kv对调用<code>InsertCombine()</code>插入SimpleAggregationHashTable中。Key为代表group by字段的数组，Value为aggregate的值的数组。</li>
+<li>判断是否是第一次插入该group by字段，是则调用<code>GenerateInitialAggregateValue()</code>为其生成初值，这里注意<code>CountStarAggregate</code>这一AggregationType初值为0，其他初值都为NULL。</li>
+<li>更新aggregate的值，根据对应聚合操作符进行相应的更新，例如<code>CountStarAggregate</code>就直接对旧值+1，<code>MaxAggregate</code>就应该比较新值与旧值大小进行替换。</li>
+</ol>
+<p>中间结果计算出来以后<code>Next()</code>就比较简单了，直接用SimpleAggregationHashTable的iterator依次输出结果就行。</p>
+<h3 id="NestedLoopJoin-Executor-HashJoin-Executor-Optimizer"><a href="#NestedLoopJoin-Executor-HashJoin-Executor-Optimizer" class="headerlink" title="NestedLoopJoin Executor, HashJoin Executor, Optimizer"></a>NestedLoopJoin Executor, HashJoin Executor, Optimizer</h3><p>理论上join操作细节会比较多，但是因为测试用例比较简单，我偷懒直接在<code>Init()</code>阶段把左右表都存到vector里，<code>Next()</code>阶段时直接比较两个vector里的值🤣，记得调一下右子算子的Init就能骗过测试（别学我hh）。同时记得保留每次left_iter，right_iter和当前left_tuple是否匹配到right_tuple的信息，可以保证不会漏结果或者left outer join时没匹配到值输出空值。</p>
+<p>HashJoin也比较简单，参考Aggregation算子生成key的函数作为unordered_map的key值即可。将NLJ优化成HashJoin的优化规则是唯一一次我在BusTub编写中用到比较复杂的算法，我们需要判断是否所有条件表达式是否都是相等条件同时还需要将左右两边的join key给分离开。但表达式是一个树形结构，这里看图会清楚一些（图源见水印），我们不能直接进行简单的判断。这里我直接对树进行递归将所有表达式给取出来，合法的表达式只能有<code>ComparisonExpression</code>, <code>LogicExpression</code>, <code>ColumnValueExpression</code>，且所有叶节点都应该是<code>ColumnValueExpression</code>，一旦有其他类型的表达式则不能优化成Hash Join，同时对所有<code>ColumnValueExpression</code>调用<code>GetTupleIdx()</code>方法，如果值为0就是左join key，否则就是右join key。</p>
+<p><img src="https://images.mingming.dev/file/b00901e29e5a89f9f4e06.png" srcset="/img/loading.gif" lazyload alt="AbstractExpressionRef"></p>
+<h3 id="Sort-Limit-Top-n-Executor"><a href="#Sort-Limit-Top-n-Executor" class="headerlink" title="Sort, Limit, Top-n Executor"></a>Sort, Limit, Top-n Executor</h3><p>这三个算子比较简单，sort可以学习一下现代C++的lambda函数该怎么写，Top-n我直接偷懒用priority_queue解决了，最优的方法应该是手写一个固定大小的优先队列。（C++ 17<code>std::partial_sort</code>方法好像也可以实现，感兴趣的同学可以自己研究一下）</p>
+<h3 id="Window-Function-Executor"><a href="#Window-Function-Executor" class="headerlink" title="Window Function Executor"></a>Window Function Executor</h3><p>最恶心的一个算子，算是aggregation的加强版，对着测试用例慢慢调就行了，反正我写的时候挺崩溃的。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>做完Project 3再回头看迟先生的<a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/570917775">这篇文章</a>，真的会感受到BusTub设计的巧妙。Project 3如此大的工作量也让我断了去CMU的念想，北美小衡水不是吹的（不过CMU也没录我😇）。</p>
+<p>这周学习了一下cmake，对着bustub的CMakeList看了半天算是大概了解了一个大型的C++项目是怎么构建的。在学习的同时也在感叹自己基础知识的缺失，从小都是用着IDE的一键编译，从来没有自己了解过一个程序从编译到链接执行是怎么进行的，看其他的C++开源项目跟看天书一样，连环境都不知道怎么配置，读硕士的时候一定要把这些缺失的知识都补回来。</p>
 
                 
               </div>
@@ -319,8 +346,8 @@
 
   <div class="license-box my-3">
     <div class="license-title">
-      <div>CMU 15-445/645 (fall 2023) Project 2 Extendible Hash Index</div>
-      <div>http://bustdot.github.io/2024/03/23/CMU-15-445-645-fall-2023-Project-2-Hash-Index/</div>
+      <div>CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION</div>
+      <div>http://bustdot.github.io/2024/03/30/CMU-15-445-645-fall-2023-Project-3-Query- Execution/</div>
     </div>
     <div class="license-meta">
       
@@ -332,7 +359,7 @@
       
         <div class="license-meta-item license-meta-date">
           <div>发布于</div>
-          <div>2024年3月23日</div>
+          <div>2024年3月30日</div>
         </div>
       
       
@@ -364,18 +391,12 @@
                   <article class="post-prev col-6">
                     
                     
-                      <a href="/2024/03/30/CMU-15-445-645-fall-2023-Project-3-Query-%20Execution/" title="CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION">
-                        <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION</span>
-                        <span class="visible-mobile">上一篇</span>
-                      </a>
-                    
                   </article>
                   <article class="post-next col-6">
                     
                     
-                      <a href="/2024/03/16/CMU-15-445-645-fall-2023-Project-1-BUFFER-POOL/" title="CMU 15-445 (fall 2023) Project 1 BUFFER POOL">
-                        <span class="hidden-mobile">CMU 15-445 (fall 2023) Project 1 BUFFER POOL</span>
+                      <a href="/2024/03/23/CMU-15-445-645-fall-2023-Project-2-Hash-Index/" title="CMU 15-445/645 (fall 2023) Project 2 Extendible Hash Index">
+                        <span class="hidden-mobile">CMU 15-445/645 (fall 2023) Project 2 Extendible Hash Index</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>
