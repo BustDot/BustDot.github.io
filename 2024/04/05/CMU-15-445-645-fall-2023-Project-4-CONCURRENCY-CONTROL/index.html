@@ -16,28 +16,25 @@
   <meta name="author" content="BustDot">
   <meta name="keywords" content="">
   
-    <meta name="description" content="本篇为15-445 project 3 query execution的总结。">
+    <meta name="description" content="本篇为15-445 project 4 concurrency control的总结。">
 <meta property="og:type" content="article">
-<meta property="og:title" content="CMU 15-445&#x2F;645 (fall 2023) Project 3 QUERY EXECUTION">
-<meta property="og:url" content="http://bustdot.github.io/2024/03/30/CMU-15-445-645-fall-2023-Project-3-Query-%20Execution/index.html">
+<meta property="og:title" content="CMU 15-445&#x2F;645 (fall 2023) Project 4 CONCURRENCY CONTROL">
+<meta property="og:url" content="http://bustdot.github.io/2024/04/05/CMU-15-445-645-fall-2023-Project-4-CONCURRENCY-CONTROL/index.html">
 <meta property="og:site_name" content="BustDot blog">
-<meta property="og:description" content="本篇为15-445 project 3 query execution的总结。">
+<meta property="og:description" content="本篇为15-445 project 4 concurrency control的总结。">
 <meta property="og:locale" content="zh_CN">
-<meta property="og:image" content="https://images.mingming.dev/file/0b92ba42f1c714945956c.png">
-<meta property="og:image" content="https://images.mingming.dev/file/55a2d6c38ba464c4feca2.png">
-<meta property="og:image" content="https://images.mingming.dev/file/4886b1172ec737d6333e6.png">
-<meta property="og:image" content="https://images.mingming.dev/file/b00901e29e5a89f9f4e06.png">
-<meta property="article:published_time" content="2024-03-29T16:04:51.000Z">
-<meta property="article:modified_time" content="2024-03-31T15:43:18.678Z">
+<meta property="og:image" content="https://cf-image-hosting.crpc5yxfbh.workers.dev/file/dda07c088cdd59d820b8b.png">
+<meta property="article:published_time" content="2024-04-05T09:51:39.000Z">
+<meta property="article:modified_time" content="2024-04-06T13:09:34.197Z">
 <meta property="article:author" content="BustDot">
 <meta property="article:tag" content="15-445">
 <meta property="article:tag" content="database">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://images.mingming.dev/file/0b92ba42f1c714945956c.png">
+<meta name="twitter:image" content="https://cf-image-hosting.crpc5yxfbh.workers.dev/file/dda07c088cdd59d820b8b.png">
   
   
   
-  <title>CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION - BustDot blog</title>
+  <title>CMU 15-445/645 (fall 2023) Project 4 CONCURRENCY CONTROL - BustDot blog</title>
 
   <link  rel="stylesheet" href="https://lib.baomitu.com/twitter-bootstrap/4.6.1/css/bootstrap.min.css" />
 
@@ -203,7 +200,7 @@
       <div class="banner-text text-center fade-in-up">
         <div class="h2">
           
-            <span id="subtitle" data-typed-text="CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION"></span>
+            <span id="subtitle" data-typed-text="CMU 15-445/645 (fall 2023) Project 4 CONCURRENCY CONTROL"></span>
           
         </div>
 
@@ -214,8 +211,8 @@
     
       <span class="post-meta">
         <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-        <time datetime="2024-03-30 00:04" pubdate>
-          2024年3月30日 凌晨
+        <time datetime="2024-04-05 17:51" pubdate>
+          2024年4月5日 下午
         </time>
       </span>
     
@@ -226,7 +223,7 @@
       <span class="post-meta mr-2">
         <i class="iconfont icon-chart"></i>
         
-          4.1k 字
+          2.5k 字
         
       </span>
     
@@ -237,7 +234,7 @@
         
         
         
-          34 分钟
+          21 分钟
         
       </span>
     
@@ -274,52 +271,45 @@
       <div class="container nopadding-x-md" id="board-ctn">
         <div id="board">
           <article class="post-content mx-auto">
-            <h1 id="seo-header">CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION</h1>
+            <h1 id="seo-header">CMU 15-445/645 (fall 2023) Project 4 CONCURRENCY CONTROL</h1>
             
             
               <div class="markdown-body">
                 
-                <p>本篇为15-445 project 3 query execution的总结。</p>
+                <p>本篇为15-445 project 4 concurrency control的总结。</p>
 <span id="more"></span>
 
-<p>相较于Project 1和2 Buffer Pool和Index较为底层的组件，Project 3主要关注的是图中红框的部分，从这里开始我们能够从一个比较高的角度来理解BusTub是如何运行的，也感谢迟先生在23Spring为BusTub引入了一整套Query Processing层，让我们可以在本地实际运行SQL，帮助我们更直观的理解一条SQL在数据库里的执行流程。红框中各组件负责的功能如下：</p>
-<ul>
-<li>Parser：根据sql语句生成一颗抽象语法树（学过编译原理的同学应该熟悉，这就是编译器的前端，BusTub直接采用了<code>pg_query</code>库将SQL语句parse成抽象语法树）。</li>
-<li>Binder：结合数据库的元信息，将抽象语法树中的标识符绑定到BusTub能理解的实体（C++类）上，转成一个具有库表信息的语义语法树。</li>
-<li>Planner：根据语义语法树生成逻辑执行计划树，也叫查询计划。</li>
-<li>Optimizer：根据某些优化规则，重写优化后的查询计划（BusTub是rule-based优化器，意味着优化都要根据我们自己写的规则来，目前业界采用的优化器也有cost-based, data-dependent-based等等）。</li>
-<li>Executors：根据查询计划，生成具体的算子执行树。</li>
-</ul>
-<p><img src="https://images.mingming.dev/file/0b92ba42f1c714945956c.png" srcset="/img/loading.gif" lazyload alt="BusTub架构"></p>
-<p><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/602413477">这篇文章</a>给BusTub的查询流程和结构画了比较详细的图，可以参考一下。</p>
-<h2 id="在Clion中Debug（观察）BusTub"><a href="#在Clion中Debug（观察）BusTub" class="headerlink" title="在Clion中Debug（观察）BusTub"></a>在Clion中Debug（观察）BusTub</h2><p>通过编译运行<code>tools/shell.cpp</code>，我们可以直接在Clion里通过命令行输入SQL进行调试，记得在Debug configurations里加上参数<code>--disable-tty</code>。</p>
-<p><img src="https://images.mingming.dev/file/55a2d6c38ba464c4feca2.png" srcset="/img/loading.gif" lazyload alt="加上参数--disable-tty"></p>
-<p>这样我们就能通过打断点观察SQL的运行流程了，这里以一条seqscan语句为例，我先在<code>seq_scan_executor</code>里打了断点，然后以Debug模式运行shell，并在命令行里输入<code>select col2 + col1 from test_simple_seq_2;</code>这条会触发seqscan的SQL语句，执行后我们可以在下方很清晰的看到函数的调用栈，各个变量的值，对于调试来说十分的直观。</p>
-<p><img src="https://images.mingming.dev/file/4886b1172ec737d6333e6.png" srcset="/img/loading.gif" lazyload alt="SQL调试流程"></p>
-<p>同时在输入的SQL语句前加上<code>EXPLAIN</code>命令，BusTub会将生成执行计划的过程全部打印出来，这对我们调试优化器会很有帮助：</p>
-<figure class="highlight routeros"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><code class="hljs routeros">bustub&gt; EXPLAIN SELECT * <span class="hljs-keyword">FROM</span> __mock_table_1;<br>=== BINDER ===<br>BoundSelect &#123;<br>  <span class="hljs-attribute">table</span>=BoundBaseTableRef &#123; <span class="hljs-attribute">table</span>=__mock_table_1, <span class="hljs-attribute">oid</span>=0 &#125;,<br>  columns=[__mock_table_1.colA, __mock_table_1.colB],<br>  groupBy=[],<br>  <span class="hljs-attribute">having</span>=,<br>  <span class="hljs-attribute">where</span>=,<br>  <span class="hljs-attribute">limit</span>=,<br>  <span class="hljs-attribute">offset</span>=,<br>  order_by=[],<br>  <span class="hljs-attribute">is_distinct</span>=<span class="hljs-literal">false</span>,<br>&#125;<br>=== PLANNER ===<br>Projection &#123; exprs=[#0.0, #0.1] &#125; | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)<br>MockScan &#123; <span class="hljs-attribute">table</span>=__mock_table_1 &#125; | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)<br>=== OPTIMIZER ===<br>MockScan &#123; <span class="hljs-attribute">table</span>=__mock_table_1 &#125; | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)<br></code></pre></td></tr></table></figure>
-
-<h2 id="火山模型"><a href="#火山模型" class="headerlink" title="火山模型"></a>火山模型</h2><p>BusTub采用了解释计算模型，将关系代数中每一种操作抽象为一个 Operator，将整个 SQL 构建成一个 Operator 树，从根节点到叶子结点自上而下地递归调用 <code>next()</code> 函数。优点就是每个算子我们都可以独立实现，不必过多考虑其他算子的特性，缺点就是每次算子计算只会返回一个tuple，这会造成大量的函数调用开销。对于火山模型的优化方向有编译执行和向量化，具体可以参考<a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/219516250">这篇文章</a>。</p>
-<h2 id="算子实现"><a href="#算子实现" class="headerlink" title="算子实现"></a>算子实现</h2><p>算子中增删改查都比较简单，实现一个其他稍微改一改就可以，需要注意的是executor 本身并不保存查询计划的信息，应该通过 executor 的成员 plan 来得知该如何进行本次计算，例如 SeqScanExecutor 需要向 SeqScanPlanNode 询问自己该扫描哪张表。所有要用到的系统资源，例如 Catalog，Buffer Pool 等，都由 <code>ExecutorContext</code> 提供。这里比较麻烦的一点是我不知道输出的tuple schema长啥样，经过调试发现输出结果的schema是在<code>src/execution/plan_node.cpp</code>定义的，参考这里对结果进行拼装就可以了。</p>
-<h3 id="Aggregation-Executor"><a href="#Aggregation-Executor" class="headerlink" title="Aggregation Executor"></a>Aggregation Executor</h3><p>BusTub简化了aggregation算子，我们可以认为所有结果都可以放进内存，意味着不需要实现一个可持久化的hash table，使用<code>std::unordered_map</code>就可以满足需求。</p>
-<p>Aggregation算子是pipeline breaker，意味着 Aggregation 的 <code>Init()</code> 函数中，我们就要将所有结果全部计算出来而不是调用一次next去计算一次聚合结果。举个例子，比如下面这条 sql：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs sql"><span class="hljs-keyword">SELECT</span> t.x, <span class="hljs-built_in">max</span>(t.y) <span class="hljs-keyword">FROM</span> t <span class="hljs-keyword">GROUP</span> <span class="hljs-keyword">BY</span> t.x;<br></code></pre></td></tr></table></figure>
-
-<p>结果的每条 tuple 都是一个 <code>t.x</code> 的聚合，而要得到同一个 <code>t.x</code> 对应的 <code>max(t.y)</code>，必须要遍历整张表。因此，Aggregation 需要在 <code>Init()</code> 中直接计算出全部结果，将结果暂存，再在 <code>Next()</code> 中一条一条地 emit。中间结果则保存在SimpleAggregationHashTable中。</p>
-<p>Aggregation中间结果计算流程如下：</p>
+<p>23 fall是BusTub第一次引入MVOCC，在这之前并发控制使用的是2PL。MVCC也是现代数据库基本都会采用的协议，BusTub也算是与时俱进了。实验手册和代码里的注释没有之前那么的project那么保姆，在开始之前建议先过一遍PPT把MVCC复习一下。</p>
+<h2 id="Timestamps"><a href="#Timestamps" class="headerlink" title="Timestamps"></a>Timestamps</h2><p>task1比较简单，主要是在TransactionManager的<code>Begin()</code>给事务赋<code>read_ts_</code>，<code>Commit()</code>处理<code>last_commit_ts_</code>和在这两个函数里维护<code>watermark</code>。watermark指的是当前运行中的事务里最小的<code>read_ts_</code>，因为维护比最小的<code>read_ts_</code>还要小的历史版本没有意义，所以知道watermark后我们就能对无用的历史版本进行GC了。在watermark的实现里可以用<code>std::map</code>来存<code>current_reads_</code>，这样就能利用map的有序性来直接获取最小的<code>read_ts_</code>。</p>
+<h2 id="Storage-Format-and-Sequential-Scan"><a href="#Storage-Format-and-Sequential-Scan" class="headerlink" title="Storage Format and Sequential Scan"></a>Storage Format and Sequential Scan</h2><p>从这里开始我们就需要弄清楚BusTub是怎样存历史数据的了。BusTub对MVCC做了简化，并不会将历史记录持久化到磁盘上，数据会存储在三个位置中：</p>
 <ol>
-<li>在<code>Init()</code>中调用子算子，并将子算子输出的tuple生成对应的kv对调用<code>InsertCombine()</code>插入SimpleAggregationHashTable中。Key为代表group by字段的数组，Value为aggregate的值的数组。</li>
-<li>判断是否是第一次插入该group by字段，是则调用<code>GenerateInitialAggregateValue()</code>为其生成初值，这里注意<code>CountStarAggregate</code>这一AggregationType初值为0，其他初值都为NULL。</li>
-<li>更新aggregate的值，根据对应聚合操作符进行相应的更新，例如<code>CountStarAggregate</code>就直接对旧值+1，<code>MaxAggregate</code>就应该比较新值与旧值大小进行替换。</li>
+<li>Table_heap: 最新的数据总是在table_heap中；</li>
+<li>TransanctionManager: 存储了table_heap中元组上一次修改的指针；</li>
+<li>Transaction: 存储了该事务修改过的元组的历史版本（Undo_log）。</li>
 </ol>
-<p>中间结果计算出来以后<code>Next()</code>就比较简单了，直接用SimpleAggregationHashTable的iterator依次输出结果就行。</p>
-<h3 id="NestedLoopJoin-Executor-HashJoin-Executor-Optimizer"><a href="#NestedLoopJoin-Executor-HashJoin-Executor-Optimizer" class="headerlink" title="NestedLoopJoin Executor, HashJoin Executor, Optimizer"></a>NestedLoopJoin Executor, HashJoin Executor, Optimizer</h3><p>理论上join操作细节会比较多，但是因为测试用例比较简单，我偷懒直接在<code>Init()</code>阶段把左右表都存到vector里，<code>Next()</code>阶段时直接比较两个vector里的值🤣，记得调一下右子算子的Init就能骗过测试（别学我hh）。同时记得保留每次left_iter，right_iter和当前left_tuple是否匹配到right_tuple的信息，可以保证不会漏结果或者left outer join时没匹配到值输出空值。</p>
-<p>HashJoin也比较简单，参考Aggregation算子生成key的函数作为unordered_map的key值即可。将NLJ优化成HashJoin的优化规则是唯一一次我在BusTub编写中用到比较复杂的算法，我们需要判断是否所有条件表达式是否都是相等条件同时还需要将左右两边的join key给分离开。但表达式是一个树形结构，这里看图会清楚一些（图源见水印），我们不能直接进行简单的判断。这里我直接对树进行递归将所有表达式给取出来，合法的表达式只能有<code>ComparisonExpression</code>, <code>LogicExpression</code>, <code>ColumnValueExpression</code>，且所有叶节点都应该是<code>ColumnValueExpression</code>，一旦有其他类型的表达式则不能优化成Hash Join，同时对所有<code>ColumnValueExpression</code>调用<code>GetTupleIdx()</code>方法，如果值为0就是左join key，否则就是右join key。</p>
-<p><img src="https://images.mingming.dev/file/b00901e29e5a89f9f4e06.png" srcset="/img/loading.gif" lazyload alt="AbstractExpressionRef"></p>
-<h3 id="Sort-Limit-Top-n-Executor"><a href="#Sort-Limit-Top-n-Executor" class="headerlink" title="Sort, Limit, Top-n Executor"></a>Sort, Limit, Top-n Executor</h3><p>这三个算子比较简单，sort可以学习一下现代C++的lambda函数该怎么写，Top-n我直接偷懒用priority_queue解决了，最优的方法应该是手写一个固定大小的优先队列。（C++ 17<code>std::partial_sort</code>方法好像也可以实现，感兴趣的同学可以自己研究一下）</p>
-<h3 id="Window-Function-Executor"><a href="#Window-Function-Executor" class="headerlink" title="Window Function Executor"></a>Window Function Executor</h3><p>最恶心的一个算子，算是aggregation的加强版，对着测试用例慢慢调就行了，反正我写的时候挺崩溃的。</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>做完Project 3再回头看迟先生的<a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/570917775">这篇文章</a>，真的会感受到BusTub设计的巧妙。Project 3如此大的工作量也让我断了去CMU的念想，北美小衡水不是吹的（不过CMU也没录我😇）。</p>
-<p>这周学习了一下cmake，对着bustub的CMakeList看了半天算是大概了解了一个大型的C++项目是怎么构建的。在学习的同时也在感叹自己基础知识的缺失，从小都是用着IDE的一键编译，从来没有自己了解过一个程序从编译到链接执行是怎么进行的，看其他的C++开源项目跟看天书一样，连环境都不知道怎么配置，读硕士的时候一定要把这些缺失的知识都补回来。</p>
+<p>Tuple reconstruction比较简单，只需要根据入参对元组进行相应的拼装即可，相信这对于已经完成project 3执行算子的你来说不是难事。重写seqscan executor就复杂一点，需要清楚共有几种情况：</p>
+<ol>
+<li>tuple.ts_ &#x3D;&#x3D; txnId: 说明这个元组被改事务修改过，直接返回该元组；</li>
+<li>tuple.ts &lt;&#x3D; txn.read_ts_: 按之前逻辑正常进行读取；</li>
+<li>不符合上述两种情况则要reconstruct tuple。</li>
+</ol>
+<p>如何找到元组的undo_log呢？调用TxnManager<code>GetUndoLog</code>方法根据元组的RID获得上一次修改所在的事务和undo_link，则可以顺理成章的拿到第一个undo_log了，这里注意我们要获得 &gt;&#x3D; txn.read_ts_的所有undo_log作为reconstruct的参数。这里transanction, undo_link和undo_log的关系比较复杂，看一看看测试用例是怎么写的会比较有帮助。</p>
+<h2 id="MVCC-Executors"><a href="#MVCC-Executors" class="headerlink" title="MVCC Executors"></a>MVCC Executors</h2><p>Insert executor比较简单，因为是刚插入的元组，所以不会有上一次的修改记录，undolink设为nullopt就行，插入完记得更新write set。Commit中我们只需要更新修改过的tuple的ts为commit_ts就行。</p>
+<p>在开始接下来的任务前，首先应该完成<code>TxnMgrDbg()</code>这个辅助函数，这将很好的帮助理解每个txn是如何对un_log和undo_link操作的。注释里的样例就是测试用例的标准输出，可以通过执行测试用例来确定自己写的辅助函数是否正确。</p>
+<p>在开始update或者delete前，我们需要先检测之前该事务是否已经修改过此元组，如果已经修改过就直接更新undo_log，如果是刚插入的元组则什么都直接更新table_heap里的元组就行。然后我们需要确定是否存在写写冲突。写写冲突有如下情况：</p>
+<ol>
+<li>事务 A 尝试更新 tuple 时，发现 tuple 的最新 timestamp 属于另一个 uncommitted 的事务B</li>
+<li>事务 A 尝试更新 tuple 时，发现 tuple 的最新 timestamp 属于另一个 committed 的事务B，且 B commited timestamp &gt; A read timestamp</li>
+</ol>
+<p><img src="https://cf-image-hosting.crpc5yxfbh.workers.dev/file/dda07c088cdd59d820b8b.png" srcset="/img/loading.gif" lazyload alt="image-20240406205423428"></p>
+<p>实验手册里写的很清楚，我就不翻译了。</p>
+<blockquote>
+<p>Let us go through the above example. In case (1), txn10 deletes the (A, 2) tuple and has not committed yet. Txn9 can still read an old version of the tuple (A, 2) because the read timestamp is 3.In this case, if txn9 needs to update &#x2F; delete the tuple, it should be aborted with a write-write conflict In case (2), if any other transactions try to update &#x2F; delete this tuple, they will be aborted. In case (3), there is another transaction that updates (C, 2) to (C, 4) and the commit timestamp is set to 4. Txn9 can read an old version of the tuple (C, 2), but it should be aborted when update &#x2F; delete the (C, 4) tuple, because there is a newer update that happens after the transaction read timestamp.</p>
+</blockquote>
+<p>两者的逻辑其实大差不差，我是直接在excution_common里写了一个Modify函数共用了许多逻辑。</p>
+<p>GC只会在没有事务进行时发生，所以就不需要考虑得很复杂。根据watermark遍历txn和undo_log把无用的数据清楚就好了。</p>
+<h2 id="Primary-Key-Index"><a href="#Primary-Key-Index" class="headerlink" title="Primary Key Index"></a>Primary Key Index</h2><p>Insert根据实验手册说的一步一步写就行。因为忙着做毕设，之后的实验我就听取实验手册的警告没有继续往后写了，前面的区域以后再来探索吧（误</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>写BusTub确实过瘾，再次感谢CMU DB group能把制作如此精良的project开放给所有人，感恩！</p>
 
                 
               </div>
@@ -346,8 +336,8 @@
 
   <div class="license-box my-3">
     <div class="license-title">
-      <div>CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION</div>
-      <div>http://bustdot.github.io/2024/03/30/CMU-15-445-645-fall-2023-Project-3-Query- Execution/</div>
+      <div>CMU 15-445/645 (fall 2023) Project 4 CONCURRENCY CONTROL</div>
+      <div>http://bustdot.github.io/2024/04/05/CMU-15-445-645-fall-2023-Project-4-CONCURRENCY-CONTROL/</div>
     </div>
     <div class="license-meta">
       
@@ -359,7 +349,7 @@
       
         <div class="license-meta-item license-meta-date">
           <div>发布于</div>
-          <div>2024年3月30日</div>
+          <div>2024年4月5日</div>
         </div>
       
       
@@ -391,18 +381,12 @@
                   <article class="post-prev col-6">
                     
                     
-                      <a href="/2024/04/05/CMU-15-445-645-fall-2023-Project-4-CONCURRENCY-CONTROL/" title="CMU 15-445/645 (fall 2023) Project 4 CONCURRENCY CONTROL">
-                        <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">CMU 15-445/645 (fall 2023) Project 4 CONCURRENCY CONTROL</span>
-                        <span class="visible-mobile">上一篇</span>
-                      </a>
-                    
                   </article>
                   <article class="post-next col-6">
                     
                     
-                      <a href="/2024/03/23/CMU-15-445-645-fall-2023-Project-2-Hash-Index/" title="CMU 15-445/645 (fall 2023) Project 2 Extendible Hash Index">
-                        <span class="hidden-mobile">CMU 15-445/645 (fall 2023) Project 2 Extendible Hash Index</span>
+                      <a href="/2024/03/30/CMU-15-445-645-fall-2023-Project-3-Query-%20Execution/" title="CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION">
+                        <span class="hidden-mobile">CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>

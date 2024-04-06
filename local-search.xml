@@ -4,6 +4,27 @@
   
   
   <entry>
+    <title>CMU 15-445/645 (fall 2023) Project 4 CONCURRENCY CONTROL</title>
+    <link href="/2024/04/05/CMU-15-445-645-fall-2023-Project-4-CONCURRENCY-CONTROL/"/>
+    <url>/2024/04/05/CMU-15-445-645-fall-2023-Project-4-CONCURRENCY-CONTROL/</url>
+    
+    <content type="html"><![CDATA[<p>本篇为15-445 project 4 concurrency control的总结。</p><span id="more"></span><p>23 fall是BusTub第一次引入MVOCC，在这之前并发控制使用的是2PL。MVCC也是现代数据库基本都会采用的协议，BusTub也算是与时俱进了。实验手册和代码里的注释没有之前那么的project那么保姆，在开始之前建议先过一遍PPT把MVCC复习一下。</p><h2 id="Timestamps"><a href="#Timestamps" class="headerlink" title="Timestamps"></a>Timestamps</h2><p>task1比较简单，主要是在TransactionManager的<code>Begin()</code>给事务赋<code>read_ts_</code>，<code>Commit()</code>处理<code>last_commit_ts_</code>和在这两个函数里维护<code>watermark</code>。watermark指的是当前运行中的事务里最小的<code>read_ts_</code>，因为维护比最小的<code>read_ts_</code>还要小的历史版本没有意义，所以知道watermark后我们就能对无用的历史版本进行GC了。在watermark的实现里可以用<code>std::map</code>来存<code>current_reads_</code>，这样就能利用map的有序性来直接获取最小的<code>read_ts_</code>。</p><h2 id="Storage-Format-and-Sequential-Scan"><a href="#Storage-Format-and-Sequential-Scan" class="headerlink" title="Storage Format and Sequential Scan"></a>Storage Format and Sequential Scan</h2><p>从这里开始我们就需要弄清楚BusTub是怎样存历史数据的了。BusTub对MVCC做了简化，并不会将历史记录持久化到磁盘上，数据会存储在三个位置中：</p><ol><li>Table_heap: 最新的数据总是在table_heap中；</li><li>TransanctionManager: 存储了table_heap中元组上一次修改的指针；</li><li>Transaction: 存储了该事务修改过的元组的历史版本（Undo_log）。</li></ol><p>Tuple reconstruction比较简单，只需要根据入参对元组进行相应的拼装即可，相信这对于已经完成project 3执行算子的你来说不是难事。重写seqscan executor就复杂一点，需要清楚共有几种情况：</p><ol><li>tuple.ts_ &#x3D;&#x3D; txnId: 说明这个元组被改事务修改过，直接返回该元组；</li><li>tuple.ts &lt;&#x3D; txn.read_ts_: 按之前逻辑正常进行读取；</li><li>不符合上述两种情况则要reconstruct tuple。</li></ol><p>如何找到元组的undo_log呢？调用TxnManager<code>GetUndoLog</code>方法根据元组的RID获得上一次修改所在的事务和undo_link，则可以顺理成章的拿到第一个undo_log了，这里注意我们要获得 &gt;&#x3D; txn.read_ts_的所有undo_log作为reconstruct的参数。这里transanction, undo_link和undo_log的关系比较复杂，看一看看测试用例是怎么写的会比较有帮助。</p><h2 id="MVCC-Executors"><a href="#MVCC-Executors" class="headerlink" title="MVCC Executors"></a>MVCC Executors</h2><p>Insert executor比较简单，因为是刚插入的元组，所以不会有上一次的修改记录，undolink设为nullopt就行，插入完记得更新write set。Commit中我们只需要更新修改过的tuple的ts为commit_ts就行。</p><p>在开始接下来的任务前，首先应该完成<code>TxnMgrDbg()</code>这个辅助函数，这将很好的帮助理解每个txn是如何对un_log和undo_link操作的。注释里的样例就是测试用例的标准输出，可以通过执行测试用例来确定自己写的辅助函数是否正确。</p><p>在开始update或者delete前，我们需要先检测之前该事务是否已经修改过此元组，如果已经修改过就直接更新undo_log，如果是刚插入的元组则什么都直接更新table_heap里的元组就行。然后我们需要确定是否存在写写冲突。写写冲突有如下情况：</p><ol><li>事务 A 尝试更新 tuple 时，发现 tuple 的最新 timestamp 属于另一个 uncommitted 的事务B</li><li>事务 A 尝试更新 tuple 时，发现 tuple 的最新 timestamp 属于另一个 committed 的事务B，且 B commited timestamp &gt; A read timestamp</li></ol><p><img src="https://cf-image-hosting.crpc5yxfbh.workers.dev/file/dda07c088cdd59d820b8b.png" alt="image-20240406205423428"></p><p>实验手册里写的很清楚，我就不翻译了。</p><blockquote><p>Let us go through the above example. In case (1), txn10 deletes the (A, 2) tuple and has not committed yet. Txn9 can still read an old version of the tuple (A, 2) because the read timestamp is 3.In this case, if txn9 needs to update &#x2F; delete the tuple, it should be aborted with a write-write conflict In case (2), if any other transactions try to update &#x2F; delete this tuple, they will be aborted. In case (3), there is another transaction that updates (C, 2) to (C, 4) and the commit timestamp is set to 4. Txn9 can read an old version of the tuple (C, 2), but it should be aborted when update &#x2F; delete the (C, 4) tuple, because there is a newer update that happens after the transaction read timestamp.</p></blockquote><p>两者的逻辑其实大差不差，我是直接在excution_common里写了一个Modify函数共用了许多逻辑。</p><p>GC只会在没有事务进行时发生，所以就不需要考虑得很复杂。根据watermark遍历txn和undo_log把无用的数据清楚就好了。</p><h2 id="Primary-Key-Index"><a href="#Primary-Key-Index" class="headerlink" title="Primary Key Index"></a>Primary Key Index</h2><p>Insert根据实验手册说的一步一步写就行。因为忙着做毕设，之后的实验我就听取实验手册的警告没有继续往后写了，前面的区域以后再来探索吧（误</p><h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>写BusTub确实过瘾，再次感谢CMU DB group能把制作如此精良的project开放给所有人，感恩！</p>]]></content>
+    
+    
+    
+    <tags>
+      
+      <tag>15-445</tag>
+      
+      <tag>database</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>CMU 15-445/645 (fall 2023) Project 3 QUERY EXECUTION</title>
     <link href="/2024/03/30/CMU-15-445-645-fall-2023-Project-3-Query-%20Execution/"/>
     <url>/2024/03/30/CMU-15-445-645-fall-2023-Project-3-Query-%20Execution/</url>
